@@ -70,7 +70,7 @@ class FactoryCpkRawdata(CpkTemplate):
                                                       fields_dict=fields)
                 json.append(json_point)
         print(json)
-        self.insert_into_influxdb(database, json, time_precison=None, batch_size=10000)
+        self.insert_into_influxdb(database, json, None, 10000)
 
     def main_daily_data(self, shift_day, factory_name):
         date_time = datetime.now() - timedelta(days=shift_day)
