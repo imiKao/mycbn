@@ -28,7 +28,7 @@ class CDEWeeklyReport(WeeklyReportTemplate):
         self.display_current_time("===== Step3: Lower CPK test item Summary dashboard =====")
         lower_cpk_summary_pdf_list = self.add_group_dashboard_id([], dashboard_id_info, "cpk_analysis", "lower_cpk_summary", which_week, "w")
         lower_cpk_summary_pdf_list = self.add_group_dashboard_id(lower_cpk_summary_pdf_list, dashboard_id_info, "cpk_analysis", "normal_cpk_lower_accuracy", which_week, "w")
-        lower_cpk_summary_pdf_list = self.add_group_dashboard_id(lower_cpk_summary_pdf_list, dashboard_id_info, "cpk_analysis", "higher_cpk", which_week, "w")
+#        lower_cpk_summary_pdf_list = self.add_group_dashboard_id(lower_cpk_summary_pdf_list, dashboard_id_info, "cpk_analysis", "higher_cpk", which_week, "w")
         pdf_list += lower_cpk_summary_pdf_list
 
         """Merge all sub pdf into one pdf"""

@@ -26,7 +26,7 @@ class CDEMonthlyReport(MonthlyReportTemplate):
         self.display_current_time("===== Step3: CPK analysis =====")
         cpk_analysis_pdf_list = self.add_group_dashboard_id([], dashboard_id_info, "cpk_analysis", "lower_cpk_summary", which_month, "M")
         cpk_analysis_pdf_list = self.add_group_dashboard_id(cpk_analysis_pdf_list, dashboard_id_info, "cpk_analysis", "normal_cpk_lower_accuracy", which_month, "M")
-        cpk_analysis_pdf_list = self.add_group_dashboard_id(cpk_analysis_pdf_list, dashboard_id_info, "cpk_analysis", "higher_cpk", which_month, "M")
+#        cpk_analysis_pdf_list = self.add_group_dashboard_id(cpk_analysis_pdf_list, dashboard_id_info, "cpk_analysis", "higher_cpk", which_month, "M")
         pdf_list += cpk_analysis_pdf_list
 
         """Merge all sub pdf into one pdf"""
