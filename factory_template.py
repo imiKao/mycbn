@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 import time
 from influxdb import InfluxDBClient
@@ -39,6 +41,24 @@ class FactoryBasicTemplate(object):
         df = df[df[col_name]==choose_value]
         df = df.reset_index(drop=True)
         return df
+
+    def df_column_corr_heatmap_save_png(self, df, save_png_name, png_style='triangle', figsize=(32, 12), text_in_cell=False, cmap='BrBG', title_text='Correlation Heatmap'):
+        self.display_current_time("===== Save Correlation of dataframe")
+        plt.figure(figsize=figsize)
+        """png_style: 'square' or 'triangle'"""
+        if png_style=="triangle":
+            mask = np.triu(np.ones_like(df.corr(), dtype=np.bool))
+            heatmap = sns.heatmap(df.corr(), mask=mask, vmin=-1, vmax=1, annot=text_in_cell, cmap=cmap)
+        else:
+            heatmap = sns.heatmap(df.corr(), vmin=-1, vmax=1, annot=text_in_cell, cmap=cmap)
+        heatmap.set_title(title_text, fontdict={'fontsize': 8}, pad=12)
+        plt.savefig(save_png_name, dpi=300, bbox_inches='tight')
+
+    def df_column_search_particular_string(self, df, column_name, target_text):
+        df = df[df[column_name].str.contains(target_text, na=False)]
+        df = df.reset_index(drop=True)
+        res_text = df.iloc[0][column_name]
+        return res_text
 
     def df_column_sort_value(self, df, col_name):
         df = df.sort_values(by=col_name)
@@ -140,7 +160,7 @@ class CpkTemplate(FactoryBasicTemplate):
         else:
             result = 0
         return result
-    
+
     def std_calc(self, x):
         rbar_list = []
         for i in range(1, len(x)):
@@ -174,7 +194,7 @@ class CpkTemplate(FactoryBasicTemplate):
         df.loc[:,ck_score_col] = 1-df.loc[:,ck_col]
         df.loc[:,ck_score_col] = np.where(df.loc[:,ck_score_col]<0.5, level_score["critical"], df.loc[:,ck_score_col])
         df.loc[:,ck_score_col] = np.where(df.loc[:,ck_score_col]<0.75, level_score["warning"], df.loc[:,ck_score_col])
-        df.loc[:,ck_score_col] = np.where(df.loc[:,ck_score_col]<1.0, level_score["normal"], df.loc[:,ck_score_col])
+        df.loc[:,ck_score_col] = np.where(df.loc[:,ck_score_col]<=1.0, level_score["normal"], df.loc[:,ck_score_col])
         df.loc[:,level_col] = df.loc[:,cp_score_col].fillna(0) + df.loc[:,ck_score_col].fillna(0)
         return df
 
@@ -321,10 +341,29 @@ class CpkTemplate(FactoryBasicTemplate):
         df = self.df_drop_multi_layer_index_by_particular_string(df, ["CYCLETIME", "UPTIME"], index_layer=len(groupby_columns))
         df.loc[:, ("CPK","usl_avg")] = (df.loc[:,("USL","mean")] - df.loc[:, ("ITEM_VALUE","mean")]) / (3 * df.loc[:, ("ITEM_VALUE","std_rbar")])
         df.loc[:, ("CPK","avg_lsl")] = (df.loc[:, ("ITEM_VALUE","mean")] - df.loc[:,("LSL","mean")]) / (3 * df.loc[:, ("ITEM_VALUE","std_rbar")])
-        df.loc[:, ("CPK","cpk")] = df[[("CPK","usl_avg"), ("CPK","avg_lsl")]].min(axis=1)
-        df = self.df_drop_column(df, [("CPK","usl_avg"), ("CPK","avg_lsl")])
-        df = df.reset_index()
+        df.loc[:, ("CPK","usl_lsl")] = (df.loc[:,("USL","mean")] - df.loc[:,("LSL","mean")]) / (6 * df.loc[:, ("ITEM_VALUE","std_rbar")])
+        df = self.cpk_column(df, ("CPK","cpk"), ("CPK","usl_avg"), ("CPK","avg_lsl"))
         return df
+
+    def get_file_name_list_of_multiple_days(self, factory_name, days_num):
+        self.date_time = (datetime.now() - timedelta(days=days_num))
+        self.folder_layer1 = os.getcwd() + "/" + "Raw_data/"
+        date_name_list = [(datetime.now() - timedelta(days=day_num)).strftime('%Y%m%d') for day_num in reversed(range(days_num))]
+        folder_name_list = []
+        for folder_name in os.listdir(self.folder_layer1):
+            if folder_name in date_name_list:
+                folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(folder_name)
+                folder_name_list.append(folder_path)
+            else:
+                continue
+        save_file_name_list = []
+        for folder_name in folder_name_list:
+            for i in os.listdir(folder_name):
+                if factory_name in i and "TEST_STATION_INFO" in i and "!" not in i:
+                    foler_path = folder_name + i
+                    save_file_name_list.append(foler_path)
+        save_file_name_list = sorted(save_file_name_list)
+        return save_file_name_list
 
 class FpyTemplate(FactoryBasicTemplate):
     def __init__(self):
@@ -642,9 +681,12 @@ class ProductionTemplate(FactoryBasicTemplate):
         model_list = df_save_file['MODEL'].unique()
         for model in model_list:
             df_model = df_save_file[df_save_file['MODEL']==model]
+            print(df_model)
             acc_production = len(df_model)
             daily_target = acc_production
+            print("daily_target:",daily_target)
             target_total += daily_target
+            print("target_total:",target_total)
             achievement_rate = 100*acc_production/daily_target
             json, json_daily = self.json_for_target_and_daily(json, json_daily, model, acc_production, daily_target, target_total, achievement_rate)
         print(json)
@@ -697,3 +739,114 @@ class ProductionTemplate(FactoryBasicTemplate):
 class CycletimeTemplate(FactoryBasicTemplate):
     def __init__(self):
         super(CycletimeTemplate, self).__init__()
+
+    def df_classify_by_work_and_break_time(self, df_origin, period_time_tuple=("00:00", "24:00")):
+        df = self.df_get_timerange(df_origin, period_time_tuple)
+        df = self.df_time_to_utc_format(df, "TEST_TIME", 8)
+        df["PREDATA"] = df["ITEM_VALUE"].shift(1)
+        df["START_TIME"] = df["TEST_TIME"].shift(1)
+        df = df.iloc[1:-1, :].reset_index(drop=True)
+        df["SECONDS"] = pd.to_timedelta(df["PREDATA"], "s")
+        df["END_TIME"] = df["TEST_TIME"] - df["SECONDS"]
+        df["IDLE_TIME"] = df["END_TIME"] - df["START_TIME"]
+        df = self.df_drop_column(df, drop_column_name_list=["MSN", "ITEM_VALUE", "PREDATA", "USL", "START_TIME", "TEST_TIME", "SECONDS"])
+        df = self.df_rename_column(df, {"END_TIME": "TEST_TIME"})
+        df["IDLE_TIME"] = df["IDLE_TIME"].dt.total_seconds()
+        df = self.df_change_column_type(df, col_new_type_dict={"IDLE_TIME":"int"})
+        if len(df) < 2:
+            df = pd.DataFrame(columns=df.columns)
+        return df
+
+    def df_get_timerange(self, df, hour_range=("00:00", "24:00")):
+        df_res = df.between_time(hour_range[0], hour_range[1]).reset_index()
+        return df_res
+
+    def insert_cycletime_raw(self, factory_name, df_cycletime, measurement_name):
+        json = []
+        for index in range(len(df_cycletime)):
+            json_point = {
+                    "measurement": measurement_name,
+                    "time": df_cycletime["TEST_TIME"][index],
+                    "tags": {"MODEL":df_cycletime["MODEL"][index],
+                             "STATION_TYPE": df_cycletime["STATION_TYPE"][index],
+                             "STATION_PORT": df_cycletime["STATION_PORT"][index]},
+                    "fields": {"CYCLE_TIME": df_cycletime["ITEM_VALUE"][index],
+                               "MSN": df_cycletime["MSN"][index]}
+            }
+            json.append(json_point)
+        print(json)
+        self.insert_into_influxdb(factory_name, json, None, 10000)
+
+    def df_time_to_utc_format(self, df, time_col, utc_time_delta):
+        df[time_col] = pd.to_datetime(df[time_col]) - pd.Timedelta(hours=utc_time_delta)
+        return df
+
+    def get_cycletime_from_fail_log(self, df):
+        cycle_time_text = self.df_column_search_particular_string(df, "RAW_TEXT", "Testing duration")
+        cycle_time = cycle_time_text.split(":")[1].lstrip().rstrip()
+        allowed_string_format = ["%M Min %S Sec", "%S Sec"]
+        for string_format in allowed_string_format:
+            try:
+                cycle_time = datetime.strptime(cycle_time, string_format)  - datetime(1900,1,1)
+                cycle_time = cycle_time.total_seconds()
+                return cycle_time
+            except:
+                pass
+        return 0
+
+    def get_fail_log_info(self, df):
+        msn_text = self.df_column_search_particular_string(df=df, column_name="RAW_TEXT", target_text="ManufacturingSN")
+        msn = msn_text.split(":")[1].lstrip().rstrip()
+        station_name_text = self.df_column_search_particular_string(df=df, column_name="RAW_TEXT", target_text="Station Name")
+        station_name = station_name_text.split(":")[1].lstrip().rstrip()
+        sn_text = self.df_column_search_particular_string(df, "RAW_TEXT", "S/N")
+        sn = sn_text.split(" ")[0].split(":")[1].lstrip().rstrip()
+        fw = sn_text.split(" ")[1].split(":")[1].lstrip().rstrip()
+        mac = sn_text.split(" ")[2].split(":")[1].lstrip().rstrip()
+        fail_log = df[df["RAW_TEXT"].str.contains("FAIL", na=False)].reset_index(drop=True).iloc[0]["RAW_TEXT"]
+        return msn, station_name, sn, fw, mac, fail_log
+
+    def get_model_from_fail_log(self, df):
+        model_name_text = self.df_column_search_particular_string(df=df, column_name="RAW_TEXT", target_text="ENV")
+        model_name = model_name_text.split("-")[1].lstrip().rstrip()
+        return model_name
+
+    def get_station_type_from_fail_log(self, station_name):
+        if "VOICE" in station_name or "Voice" in station_name:
+            station_type = "Voice"
+        elif "FUNC" in station_name:
+            station_type = "Func"
+        elif "PREWLAN" in station_name:
+            station_type = "PREWLAN"
+        elif "WLAN" in station_name:
+            station_type = "WLAN"
+        else:
+            station_type = "Others"
+        return station_type
+
+    def create_periodic_wave_of_cycletime(self, df, start_col, end_col, start_onesecond_col, end_onesecond_col):
+        df_start = df.copy(deep=True)
+        df_end = df.copy(deep=True)
+        df_start = df_start[start_col]
+        df_start = self.df_rename_column(df=df_start, rename_dict={"START_TIME":"TEST_TIME"})
+        df_end = df_end[end_col]
+        self.display_current_time("Step: Add onesecond before start and onesecond after end dataframe")
+        timediff = pd.Timedelta(1, unit='s')
+        df_start_one = df_start.copy(deep=True)
+        df_end_one = df_end.copy(deep=True)
+        df_start_one["ONESECOND"] = df_start_one["TEST_TIME"] - timediff
+        df_end_one["ONESECOND"] = df_end_one["TEST_TIME"] + timediff
+        df_start_one = df_start_one[start_onesecond_col]
+        df_end_one = df_end_one[end_onesecond_col]
+        df_start_one = self.df_rename_column(df=df_start_one, rename_dict={"ONESECOND":"TEST_TIME"})
+        df_end_one = self.df_rename_column(df=df_end_one, rename_dict={"ONESECOND":"TEST_TIME"})
+        self.display_current_time("Step: Give a threshold to display on grafana dashboard")
+        df_start["CHECK"] = 1
+        df_end["CHECK"] = 1
+        df_start_one["CHECK"] = 0
+        df_end_one["CHECK"] = 0
+        df_res = pd.concat([df_start, df_end, df_start_one, df_end_one], axis=0)
+        df_res = self.df_column_sort_value(df=df_res, col_name="TEST_TIME")
+        return df_res
+        
+        
