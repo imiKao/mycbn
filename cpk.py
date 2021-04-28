@@ -68,19 +68,22 @@ class CpkDailyStation(CpkTemplate):
         df_all = self.get_df_from_cpk_daily_file(factory_name, shift_period)
         if type(df_all) == int:
             return 0
-
         self.display_current_time("========== Step2: Start preprocessing dataframe")
         df_all = df_all.reset_index(drop=True)
         df_all = self.df_change_column_to_numeric(df=df_all, column_name_list=['USL', 'LSL'])
         df_all['TEST_TIME'] = pd.to_datetime(df_all['TEST_TIME']) - pd.Timedelta(hours=8)
         df_all.loc[df_all["STATION_NAME"].str.contains("M200-VOICE7", na=False), "STATION_TYPE"] = "M200-Voice"
         """Create preprocess columns"""
+        self.display_current_time("========== Step2-1: Create preprocess columns")
         groupby_columns = [pd.Grouper(key='TEST_TIME', freq='D'), "MODEL", "STATION_TYPE", "STATION_NAME", "TEST_ITEM"]
         df = self.get_df_cpk(df=df_all, groupby_columns=groupby_columns)
+        self.display_current_time("========== Step2-2: Create Cp(precision) columns")
+        df = self.cp_column(df=df, cp_col=("CPK","cp"), usl_lsl_col=("CPK","usl_lsl"), usl_avg_col=("CPK","usl_avg"), avg_lsl_col=("CPK","avg_lsl"))
+        self.display_current_time("========== Step2-4: Create Ck(1-Accuracy) columns")
+        df = self.ck_column(df=df, ck_col=("CPK","ck"), usl_col=("USL","mean"), lsl_col=("LSL","mean"), avg_col=("ITEM_VALUE","mean"))
         df = self.df_drop_column(df, [("CPK","usl_avg"), ("CPK","avg_lsl")])
         df = df.reset_index()
         df = self.df_drop_row_by_particular_string(df, "TEST_ITEM", ["_2"])
-
         self.display_current_time("========== Step3: Start insert data into influxdb")
         json = []
         for index in range(len(df)):
@@ -88,9 +91,9 @@ class CpkDailyStation(CpkTemplate):
                     "STATION_TYPE": df["STATION_TYPE"][index],
                     "STATION_NAME": df["STATION_NAME"][index],
                     "TEST_ITEM": df["TEST_ITEM"][index]}
-            fields = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "USL": df[("USL","mean")][index], "LSL": df[("LSL","mean")][index]}
-            fields_no_lsl = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "USL": df[("USL","mean")][index]}
-            fields_no_usl = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "LSL": df[("LSL","mean")][index]}
+            fields = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "USL": df[("USL","mean")][index], "LSL": df[("LSL","mean")][index], "CP":df[("CPK","cp")][index], "CK":df[("CPK","ck")][index]}
+            fields_no_lsl = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "USL": df[("USL","mean")][index], "CP":df[("CPK","cp")][index]}
+            fields_no_usl = {"CPK": df[("CPK","cpk")][index], "STD": df[("ITEM_VALUE","std_rbar")][index], "COUNT": df[("ITEM_VALUE","size")][index], "AVG": df[("ITEM_VALUE","mean")][index], "LSL": df[("LSL","mean")][index], "CP":df[("CPK","cp")][index]}
             if np.isnan(df[("LSL","mean")][index]):
                 json_point = self.influxdb_json_point(self.table_name, df["TEST_TIME"][index], tags, fields_no_lsl)
             elif np.isnan(df[("USL","mean")][index]):
@@ -98,6 +101,7 @@ class CpkDailyStation(CpkTemplate):
             else:
                 json_point = self.influxdb_json_point(self.table_name, df["TEST_TIME"][index], tags, fields)
             json.append(json_point)
+        self.print_json_log(json)
         self.insert_into_influxdb(factory_name, json, 'm', 10000)
 
 class CpkDailyStationPort(CpkTemplate):
@@ -281,7 +285,7 @@ class CpkDailyStationTypeMA(CpkTemplate):
                                            "CPK_MA": df_test_item["CPK_MA"][index]}
                         }
                         json.append(json_point)
-        print(json)
+        self.print_json_log(json)
         self.insert_into_influxdb(factory_name, json, "m", 10000)
 
 if __name__=="__main__":
@@ -301,7 +305,7 @@ if __name__=="__main__":
     runCpk(CpkHourlyStation(), factory_list, hour_range)
 
     """========== DAILY CPK =========="""
-    day_range = 3
+    day_range = 2
     runCpk(CpkDailyStationType(), factory_list, day_range)
     runCpk(CpkDailyStation(), factory_list, day_range)
     runCpk(CpkDailyStationPort(), factory_list, day_range)

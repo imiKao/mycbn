@@ -116,6 +116,17 @@ class FactoryBasicTemplate(object):
                 target_list.remove(item)
         return target_list
 
+    def load_files(self, filename_list, folder_path=os.getcwd()):
+        for filename in filename_list:
+            if "/" in filename:
+                yield pd.read_csv(filename)
+            else:
+                yield pd.read_csv(folder_path + filename)
+
+    def print_json_log(self, json_list):
+        for j in json_list:
+            print(j)
+
 class Ftp(object):
     def __init__(self):
         pass
@@ -198,90 +209,6 @@ class CpkTemplate(FactoryBasicTemplate):
         df.loc[:,level_col] = df.loc[:,cp_score_col].fillna(0) + df.loc[:,ck_score_col].fillna(0)
         return df
 
-    def cpk_calc(self, x):
-        avg=x['ITEM_VALUE'].mean()
-        std = self.std_calc(x)
-        count=len(x['ITEM_VALUE'])
-        usl=x['USL'].mean()
-        lsl=x['LSL'].mean()
-        if avg!=0 and count>=30:
-            if np.isnan(x["USL"].mean()):
-                cpk=(avg-lsl)/(3*std)
-            elif np.isnan(x["LSL"].mean()):
-                cpk=(usl-avg)/(3*std)
-            else:
-                cpk=np.min([(usl-avg)/(3*std),(avg-lsl)/(3*std)])
-            return avg, std, cpk, lsl, usl, count
-        else:
-            cpk = None
-            std = None
-            return avg, std, cpk, lsl, usl, count
-
-    def cpk_cal_to_df(self, x):
-        d={}
-        mu=x['ITEM_VALUE'].mean()
-        std = self.std_calc(x)
-        num=len(x['ITEM_VALUE'])
-        USL=x['USL'].mean()
-        LSL=x['LSL'].mean()
-        if std!=0 and num>=30:
-            if np.isnan(x.USL.mean()):
-                cpk=(mu-LSL)/(3*std)
-            elif np.isnan(x.LSL.mean()):
-                cpk=(USL-mu)/(3*std)
-            else:
-                cpk=np.min([(USL-mu)/(3*std),(mu-LSL)/(3*std)])
-            d = {'AVG':mu, 'STD':std, 'CPK':cpk, 'LSL':LSL, 'USL':USL, 'num':num}
-            return pd.Series(d, index=['AVG', 'STD', 'CPK', 'LSL', 'USL', 'num'])
-        else:
-            d = {'AVG':mu, 'STD':None, 'CPK':None, 'LSL':LSL, 'USL':USL, 'num':num}
-            return pd.Series(d, index=['AVG', 'STD', 'CPK', 'LSL', 'USL', 'num'])
-
-    def cp_calc(self, x):
-        avg=x['ITEM_VALUE'].mean()
-        std = self.std_calc(x)
-        count=len(x['ITEM_VALUE'])
-        usl=x['USL'].mean()
-        lsl=x['LSL'].mean()
-        if avg!=0 and count>=30:
-            if np.isnan(x["USL"].mean()):
-                cp=(avg-lsl)/(3*std)
-            elif np.isnan(x["LSL"].mean()):
-                cp=(usl-avg)/(3*std)
-            else:
-                cp=(usl-lsl)/(6*std)
-            return cp
-
-    def ck_calc(self, x):
-        avg=x['ITEM_VALUE'].mean()
-        count=len(x['ITEM_VALUE'])
-        usl=x['USL'].mean()
-        lsl=x['LSL'].mean()
-        if avg!=0 and count>=30:
-            if np.isnan(x["USL"].mean()):
-                ck=None
-            elif np.isnan(x["LSL"].mean()):
-                ck=None
-            else:
-                ck=(((usl+lsl)/2)-avg)/((usl-lsl)/2)
-                ck = abs(ck)
-            return ck
-
-    def leveling_by_cp_and_ca(self, cp, ca):
-        level_score = {"critical": 3, "warning": 1, "normal": 0}
-        if ca==None and cp!=None:
-            cp_level = "critical" if cp<1.0 else "warning" if cp<1.33 else "normal"
-            cp_score = level_score[cp_level] * 1.3
-            return cp_score
-        elif cp!=None:
-            cp_level = "critical" if cp<1.0 else "warning" if cp<1.33 else "normal"
-            cp_score = level_score[cp_level]
-            ca_level = "critical" if (1-ca)<0.5 else "warning" if (1-ca)<0.75 else "normal"
-            ca_score = level_score[ca_level]
-            return cp_score + ca_score
-        else:
-            return 0
-
     def calc_percentage_for_stdev_area(self, df, column_name, avg, std):
         if std!=None:
             std=std
@@ -306,13 +233,10 @@ class CpkTemplate(FactoryBasicTemplate):
             return 0
 
         self.display_current_time("========== Step1-3: Start reading dataset")
-        column_list = ['MODEL', 'TEST_TIME', 'MSN', 'STATION_TYPE', 'LINE', 'STATION_NAME', 'TEST_ITEM', 'PORT', 'ITEM_VALUE', 'LSL', 'USL']
-        df_all = pd.DataFrame(columns=column_list)
-        for save_file in save_file_name_list:
-            df_sub = pd.read_csv(self.folder_path+save_file)
-            df_all = pd.concat([df_all, df_sub], axis=0, ignore_index=True)
+        df_all = pd.concat(self.load_files(save_file_name_list, self.folder_path))
+        df_all = df_all.reset_index(drop=True)
         return df_all
-    
+
     def get_df_from_cpk_hourly_file(self, factory_name, shift_period=0):
         self.display_current_time("========== Step1-1: Start setting time & other information")
         self.shift_period = shift_period
@@ -383,16 +307,6 @@ class FpyTemplate(FactoryBasicTemplate):
         else:
             return 0
 
-    def check_this_week_file(self):
-        self.week_num = (datetime.now() - timedelta(days=self.shift_day)).isocalendar()[1]
-        check_thisweek_list = [self.today]
-        for day in range(1,7):
-            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).isocalendar()[1] != self.week_num:
-                continue
-            this_week_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
-            check_thisweek_list.append(this_week_day)
-        return check_thisweek_list
-
     def check_this_month_file(self):
         self.month = (datetime.now() - timedelta(days=self.shift_day)).strftime('%m')
         check_thismonth_list = [self.today]
@@ -402,6 +316,16 @@ class FpyTemplate(FactoryBasicTemplate):
             this_month_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
             check_thismonth_list.append(this_month_day)
         return check_thismonth_list
+
+    def check_this_week_file(self):
+        self.week_num = (datetime.now() - timedelta(days=self.shift_day)).isocalendar()[1]
+        check_thisweek_list = [self.today]
+        for day in range(1,7):
+            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).isocalendar()[1] != self.week_num:
+                continue
+            this_week_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
+            check_thisweek_list.append(this_week_day)
+        return check_thisweek_list
 
     def df_add_station_type(self, df, stationtype_name, station_dict):
         station_list = []
@@ -461,6 +385,44 @@ class FpyTemplate(FactoryBasicTemplate):
             df = df.set_index("Station").add(df_sub.set_index("Station"), fill_value=0).reset_index()
         return df
 
+    def fpy_add_uniform_station_name_column(self, df, pattern):
+        temp = df["Station"].str.split(pattern, expand=True)
+        temp = temp.loc[:, [1, 2]]
+        temp.loc[temp[2]!="", 2] = "#" + temp.loc[temp[2]!="", 2].astype(str)
+        temp = self.df_combine_two_column(temp, "STATION_NAME", 1, 2, "")
+        temp = temp[["STATION_NAME"]]
+        df = pd.concat([df, temp], axis=1)
+        return df
+
+    def fpy_rename_station(self, df, station_col):
+        rename_dict = {"CBNFUNC":"CBN-FUNC", "CBN_VOICE":"CBN_Voice", "M200VOICE":"M200-VOICE", "FINAL_CHECK_":"Final Check ",
+                       "FINAL_CHECK":"Final Check", "RETURN_LOSS":"Return_loss"}
+        for k,v in rename_dict.items():
+            df[station_col] = df[station_col].str.replace(k, v, regex=False)
+        return df
+
+    def fpy_uniform_station_format_equal_to_station_name(self, df):
+        pattern_1_regex = "([a-zA-Z_]+)(\d*$)"
+        pattern_1 = self.fpy_uniform_station_format_pattern(df, pattern_1_regex)
+        pattern_2_regex = "([\D][\d]+[\D]+)(\d*)"
+        pattern_2 = self.fpy_uniform_station_format_pattern(df, pattern_2_regex)
+        pattern_3_regex = "[\D]+[\d][\D]"
+        pattern_3 = df[df["Station"].str.match(pattern_3_regex)].reset_index(drop=True)
+        if not pattern_3.empty:
+            pattern_3["STATION_NAME"] = pattern_3["Station"]
+            pattern_3 = self.fpy_rename_station(pattern_3, "STATION_NAME")
+        df = pd.concat([pattern_1, pattern_2, pattern_3], axis=0).reset_index(drop=True)
+        df = self.df_drop_column(df, ["Station"])
+        df = self.df_rename_column(df, {"STATION_NAME": "Station"})
+        return df
+
+    def fpy_uniform_station_format_pattern(self, df, pattern_regex):
+        pattern = df[df["Station"].str.match(pattern_regex)].reset_index(drop=True)
+        if not pattern.empty:
+            pattern = self.fpy_add_uniform_station_name_column(pattern, pattern_regex)
+            pattern = self.fpy_rename_station(pattern, "STATION_NAME")
+        return pattern
+
     def get_this_hour_data(self, folder_path, shift_period):
         this_hour = (datetime.now() - timedelta(hours=shift_period)).strftime('%Y%m%d-%H')
         this_hour_file = [i for i in os.listdir(folder_path) if this_hour in i and self.factory_name in i and "Yield" in i and "!" not in i]
@@ -481,14 +443,14 @@ class FpyTemplate(FactoryBasicTemplate):
         for index in range(len(df)):
             json_point = {"measurement": table_name,
                           "time":time_in_db.strftime('%Y-%m-%dT%H:12:00Z'),
-                          "tags":{"STATIONTYPE": df["StationType"][index],
-                                  "STATION": df["Station"][index]},
+                          "tags":{"STATION_TYPE": df["StationType"][index],
+                                  "STATION_NAME": df["Station"][index]},
                           "fields":{"PASS": df["PASS"][index],
                                     "FAIL": df["FAIL"][index],
                                     "Yield": df["Yield"][index]}
                 }
             json.append(json_point)
-        print(json)
+        self.print_json_log(json)
         self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
 
     def insert_station_type_daily_fpy_to_influxdb(self, table_name, df, time_in_db):
@@ -497,13 +459,13 @@ class FpyTemplate(FactoryBasicTemplate):
             json_point = {
                     "measurement": table_name,
                     "time":time_in_db.strftime('%Y-%m-%dT00:00:00Z'),
-                    "tags":{"STATIONTYPE": df.index[index]},
+                    "tags":{"STATION_TYPE": df.index[index]},
                     "fields":{"PASS": df["PASS"][index],
                               "FAIL": df["FAIL"][index],
                               "Yield": df["Yield"][index]}
             }
             json.append(json_point)
-        print(json)
+        self.print_json_log(json)
         self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
 
     def insert_average_fpy_into_influxdb(self, table_name, df, shift_period):
@@ -516,12 +478,12 @@ class FpyTemplate(FactoryBasicTemplate):
             hour_average_fpy = df_cal["Yield"].mean()
             json = [{"measurement": table_name,
                      "time":time_in_db.strftime('%Y-%m-%dT%H:12:00Z'),
-                     "tags":{"STATIONTYPE": "TOTAL"},
+                     "tags":{"STATION_TYPE": "TOTAL"},
                      "fields":{"PASS": df["PASS"].sum(),
                                "FAIL": df["FAIL"].sum(),
                                "Yield": hour_average_fpy}
             }]
-            print(json)
+            self.print_json_log(json)
             self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
     
     def insert_average_daily_fpy_into_influxdb(self, table_name, df, time_in_db):
@@ -534,16 +496,17 @@ class FpyTemplate(FactoryBasicTemplate):
             json = [{
                     "measurement": table_name,
                     "time":time_in_db.strftime('%Y-%m-%dT00:00:00Z'),
-                    "tags":{"STATIONTYPE": "TOTAL"},
+                    "tags":{"STATION_TYPE": "TOTAL"},
                     "fields":{"PASS": df["PASS"].sum(),
                               "FAIL": df["FAIL"].sum(),
                               "Yield": daily_average_fpy}
                     }]
-            print(json)
+            self.print_json_log(json)
             self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
 
     def insert_weekly_or_monthly_fpy_to_influxdb(self, factory_name, interval='WEEK'):
         df, field_name_list, interval_num = self.check_week_or_month_interval_num(interval)
+        df = self.fpy_uniform_station_format_equal_to_station_name(df)
         df = self.df_fpy_preprocessing(df)
         df = self.df_calc_station_type_yield(df)
         threshold = 0
@@ -559,7 +522,7 @@ class FpyTemplate(FactoryBasicTemplate):
                               field_name_list[2]:df_cal["FAIL"].sum(),
                               field_name_list[3]:average_fpy}
             }]
-            print(json)
+            self.print_json_log(json)
             self.insert_into_influxdb(factory_name, json, 'm', 10000)
 
     def two_file_substract(self, folder_path, this_hour_file, last_hour_file):
@@ -573,8 +536,7 @@ class FpyTemplate(FactoryBasicTemplate):
 
     def get_station_type_empty_dict(self):
         stationtype_dict = dict()
-        stationtype_name = ["PREWLAN", "PRECONFIG", "RETURN_LOSS", "BCD", "FUNCTION", "VOICE", "WLAN", "GIGACHECK", \
-                        "FINALCHECK", "Others"]
+        stationtype_name = ["PREWLAN", "RETURN_LOS", "BCD", "Func", "Voice", "WLAN", "FinalChk", "M200-Voice", "PRECONFIG", "Others"]
         for i in stationtype_name:
             stationtype_dict[i] = []
         return stationtype_name, stationtype_dict
@@ -583,25 +545,23 @@ class FpyTemplate(FactoryBasicTemplate):
         for item in station_regex_list:
             if "OBA" in item:
                 station_type_dict["Others"].append(item)
-            elif "RETURNLOSS" in item:
-                station_type_dict["RETURN_LOSS"].append(item)
-            elif "BCD" in item:
-                station_type_dict["BCD"].append(item)
             elif "PRECONFIG" in item:
                 station_type_dict["PRECONFIG"].append(item)
-            elif "GIGA_CHECK" in item:
-                station_type_dict["GIGACHECK"].append(item)
-            elif "VOICE" in item:
-                station_type_dict["VOICE"].append(item)
-            elif "FUNC" in item:
-                station_type_dict["FUNCTION"].append(item)
-            elif "CONFIG" in item:
+            elif "Return_loss" in item or "RETURNLOSS" in item:
+                station_type_dict["RETURN_LOS"].append(item)
+            elif "BCD" in item or "MTTNS-DSCAL" in item or "CONFIG" in item:
                 station_type_dict["BCD"].append(item)
-            elif "FINAL_CHECK" in item or "FINALCHK" in item:
-                station_type_dict["FINALCHECK"].append(item)
+            elif "Voice" in item or "VOICE" in item:
+                station_type_dict["Voice"].append(item)
+            elif "M200-VOICE" in item:
+                station_type_dict["M200-Voice"].append(item)
+            elif "CBN-FUNC" in item or "FUNCTION" in item:
+                station_type_dict["Func"].append(item)
+            elif "Final Check" in item or "FINALCHK" in item:
+                station_type_dict["FinalChk"].append(item)
             elif "PREWLAN" in item and "REP" not in item:
                 station_type_dict["PREWLAN"].append(item)
-            elif "WLAN" in item:
+            elif "WLAN" in item and "REP" not in item:
                 station_type_dict["WLAN"].append(item)
             else:
                 station_type_dict["Others"].append(item)
@@ -655,11 +615,11 @@ class ProductionTemplate(FactoryBasicTemplate):
                 if achievement_rate>100:
                     achievement_rate == 100.0
                 json, json_daily = self.json_for_target_and_daily(json, json_daily, model, acc_production, daily_target, target_total, achievement_rate)
-        print(json)
-        print(json_daily)
+        self.print_json_log(json)
+        self.print_json_log(json_daily)
         self.insert_into_influxdb(factory_name, json, 'm', 10000)
         self.insert_into_influxdb(factory_name, json_daily, 'm', 10000)
-        
+
         json = []
         json_daily = []
         for model in model_target_dict['DAILY_TARGET'].keys():
@@ -668,8 +628,8 @@ class ProductionTemplate(FactoryBasicTemplate):
                 daily_target = model_target_dict['DAILY_TARGET'][model]
                 achievement_rate = 100*acc_production/daily_target
                 json, json_daily = self.json_for_target_and_daily(json, json_daily, model, acc_production, daily_target, target_total, achievement_rate)
-        print(json)
-        print(json_daily)
+        self.print_json_log(json)
+        self.print_json_log(json_daily)
         self.insert_into_influxdb(factory_name, json, 'm', 10000)
         self.insert_into_influxdb(factory_name, json_daily, 'm', 10000)
 
@@ -681,7 +641,6 @@ class ProductionTemplate(FactoryBasicTemplate):
         model_list = df_save_file['MODEL'].unique()
         for model in model_list:
             df_model = df_save_file[df_save_file['MODEL']==model]
-            print(df_model)
             acc_production = len(df_model)
             daily_target = acc_production
             print("daily_target:",daily_target)
@@ -689,8 +648,8 @@ class ProductionTemplate(FactoryBasicTemplate):
             print("target_total:",target_total)
             achievement_rate = 100*acc_production/daily_target
             json, json_daily = self.json_for_target_and_daily(json, json_daily, model, acc_production, daily_target, target_total, achievement_rate)
-        print(json)
-        print(json_daily)
+        self.print_json_log(json)
+        self.print_json_log(json_daily)
         self.insert_into_influxdb(factory_name, json, 'm', 10000)
         self.insert_into_influxdb(factory_name, json_daily, 'm', 10000)
 
@@ -703,8 +662,8 @@ class ProductionTemplate(FactoryBasicTemplate):
             daily_target = model_target_dict['DAILY_TARGET'][model]
             achievement_rate = 100*acc_production/daily_target
             json, json_daily = self.json_for_target_and_daily(json, json_daily, model, acc_production, daily_target, target_total, achievement_rate)
-        print(json)
-        print(json_daily)
+        self.print_json_log(json)
+        self.print_json_log(json_daily)
         self.insert_into_influxdb(factory_name, json, 'm', 10000)
         self.insert_into_influxdb(factory_name, json_daily, 'm', 10000)
 
@@ -740,16 +699,121 @@ class CycletimeTemplate(FactoryBasicTemplate):
     def __init__(self):
         super(CycletimeTemplate, self).__init__()
 
+    def cycletime_combine_stationtype(self, df):
+        df = self.df_drop_row_by_particular_string(df, "STATION_TYPE", ["PREWLANIQ", "GIGACHECK"])
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("FINALCHK", "FinalChk")
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("CONFIG", "BCD")
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("BPI", "BCD")
+        return df
+
+    def cycletime_combine_station_and_port(self, df):
+        df = self.df_change_column_type(df, col_new_type_dict={"PORT":"int", "CYCLETIME":"int"})
+        df = self.df_change_column_type(df, col_new_type_dict={"PORT":"str", "MSN":"str", "CSN":"str"})
+        df["PORT"] = df["PORT"].str.zfill(2)
+        df = self.df_combine_two_column(df, new_col="STATION_PORT", col_1="STATION_NAME", col_2="PORT", hy_pen="_")
+        return df
+
+    def cycletime_data_preprocseeing(self, df):
+        df = self.cycletime_combine_stationtype(df)
+        df = self.cycletime_combine_station_and_port(df)
+        df = self.df_drop_column(df, drop_column_name_list=["STATION_NAME", "PORT"])
+        df["SECONDS"] = pd.to_timedelta(df["CYCLETIME"], "s")
+        df["TEST_TIME"] = pd.to_datetime(df["TEST_TIME"]) - pd.Timedelta(hours=8)
+        df["END_TIME"] = df["TEST_TIME"] + df["SECONDS"]
+        df = df[["MODEL", "TEST_TIME", "END_TIME", "STATION_TYPE", "STATION_PORT", "MSN", "CSN", "CYCLETIME"]]
+        df = self.df_rename_column(df=df, rename_dict={"TEST_TIME":"START_TIME"})
+        return df
+
+    def cycletime_insert_hourly_amount_pass_fail(self, df, factory_name, table_name):
+        df = self.cycletime_combine_stationtype(df)
+        df = self.cycletime_combine_station_and_port(df)
+        df = self.df_drop_column(df, drop_column_name_list=["STATION_NAME", "PORT"])
+        df = df[["TEST_TIME", "MODEL", "STATION_TYPE", "STATION_PORT", "TEST_RESULT"]]
+        df["TEST_TIME"] = pd.to_datetime(df["TEST_TIME"]) - pd.Timedelta(hours=8)
+        tags_columns = [pd.Grouper(key='TEST_TIME', freq="h"), "MODEL", "STATION_TYPE", "STATION_PORT"]
+        df_pass = df[df["TEST_RESULT"]==1].reset_index(drop=True)
+        df_pass = df_pass.groupby(tags_columns)["TEST_RESULT"].size()
+        df_pass = df_pass.reset_index()
+        df_pass = self.df_rename_column(df_pass, {"TEST_RESULT": "PASS"})
+        df_fail = df[df["TEST_RESULT"]==0].reset_index(drop=True)
+        df_fail = df_fail.groupby(tags_columns)["TEST_RESULT"].size()
+        df_fail = df_fail.reset_index()
+        df_fail = self.df_rename_column(df_fail, {"TEST_RESULT": "FAIL"})
+        df = pd.merge(df_pass, df_fail, how="outer", on=["TEST_TIME", "MODEL", "STATION_TYPE", "STATION_PORT"]).reset_index(drop=True)
+        df = df.where(pd.notnull(df), 0)
+        json = []
+        for index in range(len(df)):
+            json_point = {
+                "measurement": table_name,
+                "time": df["TEST_TIME"][index],
+                "tags":{"MODEL": df["MODEL"][index],
+                        "STATION_TYPE": df["STATION_TYPE"][index],
+                        "STATION_PORT": df["STATION_PORT"][index]},
+                "fields":{"PASS":df["PASS"][index],
+                          "FAIL":df["FAIL"][index]}
+            }
+            json.append(json_point)
+        self.insert_into_influxdb(factory_name, json, None, 10000)
+
+    def cycletime_periodic_wave_plot(self, df):
+        start_col = ["MODEL", "START_TIME", "STATION_TYPE", "STATION_PORT", "MSN", "CSN"]
+        end_col = ["MODEL", "END_TIME", "STATION_TYPE", "STATION_PORT", "MSN", "CSN"]
+        start_onesecond_col = ["MODEL", "ONESECOND", "STATION_TYPE", "STATION_PORT", "MSN", "CSN"]
+        end_onesecond_col = ["MODEL", "ONESECOND", "STATION_TYPE", "STATION_PORT", "MSN", "CSN"]
+        df_res = self.cycletime_create_periodic_wave(df, start_col, end_col, start_onesecond_col, end_onesecond_col)
+        return df_res
+
+    def cycletime_insert_raw_data(self, factory_name, df_cycletime, measurement_name, pass_or_fail="PASS"):
+        df_cycletime["SKU_NAME"] = df_cycletime["CSN"].str.strip().str[-3:]
+        df_cycletime = self.df_change_column_type(df_cycletime, col_new_type_dict={"SKU_NAME":"str"})
+        sku_name_dict = self.sku_name()
+        df_cycletime = df_cycletime.replace({"SKU_NAME":sku_name_dict})
+        pass_or_fail = pass_or_fail.upper()
+        pass_or_fail_dict = {"PASS": 1, "FAIL": 0}
+        json = []
+        for index in range(len(df_cycletime)):
+            json_point = {
+                    "measurement": measurement_name,
+                    "time": df_cycletime["START_TIME"][index],
+                    "tags": {"MODEL":df_cycletime["MODEL"][index],
+                             "STATION_TYPE": df_cycletime["STATION_TYPE"][index],
+                             "STATION_PORT": df_cycletime["STATION_PORT"][index],
+                             "PASS_FAIL": pass_or_fail_dict[pass_or_fail]},
+                    "fields": {"CYCLE_TIME": df_cycletime["CYCLETIME"][index],
+                               "MSN": df_cycletime["MSN"][index],
+                               "CSN": df_cycletime["CSN"][index],
+                               "SKU": df_cycletime["SKU_NAME"][index]}
+            }
+            json.append(json_point)
+        self.print_json_log(json)
+        self.insert_into_influxdb(factory_name, json, None, 10000)
+
+    def cycletime_insert_wave_plot_data(self, factory_name, df, measurement_name, pass_or_fail="PASS"):
+        pass_or_fail = pass_or_fail.upper()
+        pass_or_fail_dict = {"PASS": 1, "FAIL": 0}
+        json = []
+        for index in range(len(df)):
+            json_point = {
+                    "measurement": measurement_name,
+                    "time": df["TEST_TIME"][index],
+                    "tags": {"MODEL":df["MODEL"][index],
+                             "STATION_TYPE": df["STATION_TYPE"][index],
+                             "STATION_PORT": df["STATION_PORT"][index],
+                             "PASS_FAIL": pass_or_fail_dict[pass_or_fail]},
+                    "fields": {"CHECK":df["CHECK"][index]}
+            }
+            json.append(json_point)
+        self.insert_into_influxdb(factory_name, json, None, 10000)
+
     def df_classify_by_work_and_break_time(self, df_origin, period_time_tuple=("00:00", "24:00")):
         df = self.df_get_timerange(df_origin, period_time_tuple)
         df = self.df_time_to_utc_format(df, "TEST_TIME", 8)
-        df["PREDATA"] = df["ITEM_VALUE"].shift(1)
-        df["START_TIME"] = df["TEST_TIME"].shift(1)
-        df = df.iloc[1:-1, :].reset_index(drop=True)
-        df["SECONDS"] = pd.to_timedelta(df["PREDATA"], "s")
-        df["END_TIME"] = df["TEST_TIME"] - df["SECONDS"]
+        df["SECONDS"] = pd.to_timedelta(df["CYCLETIME"], "s")
+        df["START_TIME"] = df["TEST_TIME"] + df["SECONDS"]
+        df["END_TIME"] = df["TEST_TIME"].shift(-1)
+        df = df.iloc[1:-2, :].reset_index(drop=True)
         df["IDLE_TIME"] = df["END_TIME"] - df["START_TIME"]
-        df = self.df_drop_column(df, drop_column_name_list=["MSN", "ITEM_VALUE", "PREDATA", "USL", "START_TIME", "TEST_TIME", "SECONDS"])
+        df = self.df_drop_column(df, drop_column_name_list=["CSN", "CYCLETIME", "START_TIME", "TEST_TIME", "SECONDS"])
         df = self.df_rename_column(df, {"END_TIME": "TEST_TIME"})
         df["IDLE_TIME"] = df["IDLE_TIME"].dt.total_seconds()
         df = self.df_change_column_type(df, col_new_type_dict={"IDLE_TIME":"int"})
@@ -757,25 +821,35 @@ class CycletimeTemplate(FactoryBasicTemplate):
             df = pd.DataFrame(columns=df.columns)
         return df
 
+    def cycletime_create_periodic_wave(self, df, start_col, end_col, start_onesecond_col, end_onesecond_col):
+        df_start = df.copy(deep=True)
+        df_end = df.copy(deep=True)
+        df_start = df_start[start_col]
+        df_start = self.df_rename_column(df_start, {"START_TIME":"TEST_TIME"})
+        df_end = df_end[end_col]
+        df_end = self.df_rename_column(df_end, {"END_TIME":"TEST_TIME"})
+        self.display_current_time("Step: Add onesecond before start and onesecond after end dataframe")
+        timediff = pd.Timedelta(1, unit='s')
+        df_start_one = df_start.copy(deep=True)
+        df_end_one = df_end.copy(deep=True)
+        df_start_one["ONESECOND"] = df_start_one["TEST_TIME"] - timediff
+        df_end_one["ONESECOND"] = df_end_one["TEST_TIME"] + timediff
+        df_start_one = df_start_one[start_onesecond_col]
+        df_end_one = df_end_one[end_onesecond_col]
+        df_start_one = self.df_rename_column(df=df_start_one, rename_dict={"ONESECOND":"TEST_TIME"})
+        df_end_one = self.df_rename_column(df=df_end_one, rename_dict={"ONESECOND":"TEST_TIME"})
+        self.display_current_time("Step: Give a threshold to display on grafana dashboard")
+        df_start["CHECK"] = 1
+        df_end["CHECK"] = 1
+        df_start_one["CHECK"] = 0
+        df_end_one["CHECK"] = 0
+        df_res = pd.concat([df_start, df_end, df_start_one, df_end_one], axis=0)
+        df_res = self.df_column_sort_value(df=df_res, col_name="TEST_TIME")
+        return df_res
+
     def df_get_timerange(self, df, hour_range=("00:00", "24:00")):
         df_res = df.between_time(hour_range[0], hour_range[1]).reset_index()
         return df_res
-
-    def insert_cycletime_raw(self, factory_name, df_cycletime, measurement_name):
-        json = []
-        for index in range(len(df_cycletime)):
-            json_point = {
-                    "measurement": measurement_name,
-                    "time": df_cycletime["TEST_TIME"][index],
-                    "tags": {"MODEL":df_cycletime["MODEL"][index],
-                             "STATION_TYPE": df_cycletime["STATION_TYPE"][index],
-                             "STATION_PORT": df_cycletime["STATION_PORT"][index]},
-                    "fields": {"CYCLE_TIME": df_cycletime["ITEM_VALUE"][index],
-                               "MSN": df_cycletime["MSN"][index]}
-            }
-            json.append(json_point)
-        print(json)
-        self.insert_into_influxdb(factory_name, json, None, 10000)
 
     def df_time_to_utc_format(self, df, time_col, utc_time_delta):
         df[time_col] = pd.to_datetime(df[time_col]) - pd.Timedelta(hours=utc_time_delta)
@@ -848,5 +922,9 @@ class CycletimeTemplate(FactoryBasicTemplate):
         df_res = pd.concat([df_start, df_end, df_start_one, df_end_one], axis=0)
         df_res = self.df_column_sort_value(df=df_res, col_name="TEST_TIME")
         return df_res
-        
-        
+
+    def sku_name(self):
+        sku_name_dict = {"300":"CBN-EU", "301":"CBN-NA", "590":"LGI", "591":"LGI-UPC", "592":"LGI-Telenet", "593":"LGI-VM",
+                         "594":"LGI-Ziggo", "660":"Telenet", "038":"Vodafon", "094":"Claro", "096":"Adtran", "101":"Gentek",
+                         "150":"CNS", "550":"KBRO", "610":"Mobistar", "670":"Stofa", "800":"CASA", "821":"PYUR", "880":"ONO"}
+        return sku_name_dict
