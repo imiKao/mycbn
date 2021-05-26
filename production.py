@@ -17,7 +17,7 @@ class ProductionHourly(ProductionTemplate):
         date_time = datetime.now() - timedelta(hours=self.shift_period)
         today = date_time.strftime('%Y%m%d')
         current_hour = date_time.strftime('%Y%m%d-%H')
-        folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(today)
+        folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(today)
 
         self.display_current_time("========== Step2: Start to get save file list")
         save_file_name_list = [i for i in os.listdir(folder_path) if current_hour in i and "INFO" in i and factory_name in i and "TEST_STATION_INFO" not in i and "!" not in i]
@@ -27,7 +27,7 @@ class ProductionHourly(ProductionTemplate):
 
         self.display_current_time("========== Step3: Start reading dataset")
         df = pd.read_csv(folder_path+save_file_name_list[0])
-        df = self.df_drop_data_of_this_hour(df, col_name='DateCompleted', shift_hour=shift_hour)
+        df = self.df_drop_data_of_this_hour(df, col_name='DateCompleted', shift_hour=self.shift_period)
         df['DateCompleted'] = pd.to_datetime(df['DateCompleted']) - pd.Timedelta(hours=8)
         json = []
         model_list = df['MODEL'].unique()
@@ -44,7 +44,7 @@ class ProductionHourly(ProductionTemplate):
                 "tags":tags,
                 "fields":fields
             }]
-            print(json)
+            self.print_json_log(json)
             self.insert_into_influxdb(factory_name, json, 'm', 10000)
 
 class ProductionDaily(ProductionTemplate):
@@ -59,7 +59,7 @@ class ProductionDaily(ProductionTemplate):
         self.shift_period = self.factory_jet_lag[factory_name] + shift_period
         date_time = datetime.now() - timedelta(hours=self.shift_period)
         today = date_time.strftime('%Y%m%d')
-        self.folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(today)
+        self.folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(today)
         self.time_in_db = datetime.now() - timedelta(hours=self.shift_period+1) - timedelta(hours=8)
         self.time_in_db_daily = datetime.now() - timedelta(hours=self.shift_period)
 
@@ -82,24 +82,20 @@ class ProductionDaily(ProductionTemplate):
         else:
             print("File does not exist!")
 
-
 if __name__=="__main__":
+    def runProduction(run_class, factory_list, time_period):
+        run_prod = run_class
+        for factory_name in factory_list:
+            for period in reversed(range(time_period)):
+                try:
+                    run_prod.main(factory_name, period)
+                except Exception as e:
+                    print(e)
+
+    factory_list = ["CDE", "FLEX", "TwoWing"]
     hour_range = 8
+    """========== Hourly production =========="""
+    runProduction(ProductionHourly(), factory_list, hour_range)
 
-    """Hourly production"""
-    hour_production = ProductionHourly()
-    for factory_name in ["CDE", "FLEX", "TwoWing"]:
-        for shift_hour in reversed(range(hour_range)):
-            try:
-                hour_production.main(factory_name, shift_hour)
-            except:
-                print('Exception')
-
-    """Daily Production & production target"""
-    daily_production = ProductionDaily()
-    for factory_name in ["CDE", "FLEX", "TwoWing"]:
-        for shift_hour in reversed(range(hour_range)):
-            try:
-                daily_production.main(factory_name, shift_hour)
-            except:
-                print('Exception')
+    """========== Daily Production & production target =========="""
+    runProduction(ProductionDaily(), factory_list, hour_range)

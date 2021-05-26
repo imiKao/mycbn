@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import os
+import time
 from factory_template import CpkTemplate
 from datetime import datetime, timedelta
 
@@ -9,16 +10,19 @@ class FactoryCpkRawdata(CpkTemplate):
         super(FactoryCpkRawdata, self).__init__()
         self.table_name = "TEST_STATION_INFO"
 
-    def main(self, factory_name, shift_period=0):
-        print('host = %s'%(self.host))
+    def main(self, factory_name, shift_period=0, period_type="hour"):
+        time_start = time.time()
+        self.display_current_time("Host = %s"%(self.host))
+        self.display_current_time("Factory = %s"%(factory_name))
         table_name = self.table_name
         database = factory_name + '_Rawdata'
         self.shift_period = shift_period
 
-        """get data by hour"""
-        df = self.main_hourly_data(shift_hour=self.shift_period, factory_name=factory_name)
-        """get data by day"""
-#        df = self.main_daily_data(shift_day=shift_period, factory_name=factory_name)
+        self.display_current_time("========== Get dataframe")
+        if period_type=="hour":
+            df = self.main_hourly_data(shift_hour=self.shift_period, factory_name=factory_name)
+        elif period_type=="day":
+            df = self.main_daily_data(shift_day=shift_period, factory_name=factory_name)
 
         if df.empty:
             return 0
@@ -26,7 +30,8 @@ class FactoryCpkRawdata(CpkTemplate):
         df['TEST_TIME'] = pd.to_datetime(df['TEST_TIME']) - pd.Timedelta(hours=8)
         df = self.df_drop_item_in_col(df, 'TEST_ITEM', ['UPTIME', 'CYCLETIME'])
         df.loc[df["STATION_NAME"].str.contains("M200-VOICE7"), "STATION_TYPE"] = "M200-Voice"
-        df = self.df_drop_row_by_particular_string(df=df, column_name="TEST_ITEM", drop_string_list=["SNR"])
+
+        self.display_current_time("========== Insert data into influxdb")
         json = []
         for index in range(len(df)):
             tags = {
@@ -69,24 +74,24 @@ class FactoryCpkRawdata(CpkTemplate):
                                                       tags_dict=tags,
                                                       fields_dict=fields)
                 json.append(json_point)
-        print(json)
+        self.print_json_log(json)
         self.insert_into_influxdb(database, json, None, 10000)
+
+        time_end = time.time()
+        time_c = time_end - time_start
+        print("time cost:", time_c, "s")
 
     def main_daily_data(self, shift_day, factory_name):
         date_time = datetime.now() - timedelta(days=shift_day)
         print(date_time)
         today = date_time.strftime('%Y%m%d')
-        folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(today)
+        folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(today)
         save_file_name_list = [i for i in os.listdir(folder_path) if factory_name in i and "TEST_STATION_INFO" in i and "!" not in i]
         if save_file_name_list==[]:
             df = pd.DataFrame(index=range(1,10))
             print("File does not exist.")
             return df
-        df = pd.DataFrame(columns=['MODEL', 'TEST_TIME', 'MSN', 'STATION_TYPE', 'LINE', 'STATION_NAME', \
-                                    'TEST_ITEM', 'PORT', 'ITEM_VALUE', 'LSL', 'USL'])
-        for save_file in save_file_name_list:
-            df_sub = pd.read_csv(folder_path+save_file)
-            df = pd.concat([df, df_sub], axis=0, ignore_index=True)
+        df = pd.concat(self.load_files(save_file_name_list, folder_path))
         df = df.reset_index(drop=True)
         return df
 
@@ -96,7 +101,7 @@ class FactoryCpkRawdata(CpkTemplate):
         print(date_time)
         today = date_time.strftime('%Y%m%d')
         current_hour = date_time.strftime('%Y%m%d-%H')
-        folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(today)
+        folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(today)
         save_file_name_list = [i for i in os.listdir(folder_path) if current_hour in i and factory_name in i and "TEST_STATION_INFO" in i and "!" not in i]
         if save_file_name_list==[]:
             df = pd.DataFrame(index=range(1,10))
@@ -108,11 +113,10 @@ class FactoryCpkRawdata(CpkTemplate):
 
 if __name__=="__main__":
     cpk_rawdata = FactoryCpkRawdata()
-    hour_range = 3
+    time_range = 8
     for factory_name in ['CDE', 'FLEX', 'TwoWing']:
-        for shift_hour in reversed(range(hour_range)):
+        for shift_time in reversed(range(time_range)):
             try:
-                cpk_rawdata.main(factory_name=factory_name, shift_period=shift_hour)
-            except:
-                print('Exception')
-    
+                cpk_rawdata.main(factory_name=factory_name, shift_period=shift_time, period_type="hour")   # period_type: hour / day
+            except Exception as e:
+                print(e)

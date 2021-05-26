@@ -16,7 +16,7 @@ class FactoryBasicTemplate(object):
 
     def insert_into_influxdb(self, database, json_body, time_precision='m', batch_size=10000):
         host = self.host
-        client = InfluxDBClient(host=host, port=8086, database=database)
+        client = InfluxDBClient(host=host, port=8086, username="cbn", password="cbn@cbn", database=database)
         client.write_points(json_body, time_precision=time_precision, batch_size=batch_size)
 
     def display_current_time(self, display_name):
@@ -116,7 +116,7 @@ class FactoryBasicTemplate(object):
                 target_list.remove(item)
         return target_list
 
-    def load_files(self, filename_list, folder_path=os.getcwd()):
+    def load_files(self, filename_list, folder_path=os.path.dirname(os.getcwd())):
         for filename in filename_list:
             if "/" in filename:
                 yield pd.read_csv(filename)
@@ -221,7 +221,7 @@ class CpkTemplate(FactoryBasicTemplate):
     def get_df_from_cpk_daily_file(self, factory_name, shift_period=0):
         self.display_current_time("========== Step1-1: Start setting time & other information")
         self.date_time = (datetime.now() - timedelta(days=shift_period))
-        self.folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(self.date_time.strftime('%Y%m%d'))
+        self.folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(self.date_time.strftime('%Y%m%d'))
         self.display_current_time("===== Factory: {}".format(factory_name))
         self.display_current_time("===== Host = {}".format(self.host))
         self.display_current_time("===== Date: {}".format(self.date_time.strftime("%Y-%m-%d")))
@@ -247,7 +247,7 @@ class CpkTemplate(FactoryBasicTemplate):
         self.display_current_time("===== Host: {}".format(self.host))
         self.display_current_time("===== Time: {}".format(self.date_time.strftime("%Y-%m-%d %H:00:00")))
         self.time_in_json = datetime.now() - timedelta(hours=shift_period+1) - timedelta(hours=8)
-        self.folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(self.date_time.strftime('%Y%m%d'))
+        self.folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(self.date_time.strftime('%Y%m%d'))
         self.display_current_time("========== Step1-2: Start to get save file list")
         save_file_name_list = [i for i in os.listdir(self.folder_path) if current_hour in i and factory_name in i and "TEST_STATION_INFO" in i and "!" not in i]
         if save_file_name_list==[]:
@@ -271,12 +271,12 @@ class CpkTemplate(FactoryBasicTemplate):
 
     def get_file_name_list_of_multiple_days(self, factory_name, days_num):
         self.date_time = (datetime.now() - timedelta(days=days_num))
-        self.folder_layer1 = os.getcwd() + "/" + "Raw_data/"
+        self.folder_layer1 = os.path.dirname(os.getcwd()) + "/" + "Raw_data/"
         date_name_list = [(datetime.now() - timedelta(days=day_num)).strftime('%Y%m%d') for day_num in reversed(range(days_num))]
         folder_name_list = []
         for folder_name in os.listdir(self.folder_layer1):
             if folder_name in date_name_list:
-                folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(folder_name)
+                folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(folder_name)
                 folder_name_list.append(folder_path)
             else:
                 continue
@@ -288,284 +288,6 @@ class CpkTemplate(FactoryBasicTemplate):
                     save_file_name_list.append(foler_path)
         save_file_name_list = sorted(save_file_name_list)
         return save_file_name_list
-
-class FpyTemplate(FactoryBasicTemplate):
-    def __init__(self):
-        super(FpyTemplate, self).__init__()
-
-    def check_week_or_month_interval_num(self, interval="WEEK"):
-        if interval=='WEEK':
-            df = self.df_fpy_week()
-            field_name_list = ['Weeknum', 'Week_PASS', 'Week_FAIL', 'Weekly_fpy']
-            interval_num = self.week_num
-            return df, field_name_list, interval_num
-        elif interval=='MONTH':
-            df = self.df_fpy_month()
-            field_name_list = ['Month', 'Month_PASS', 'Month_FAIL', 'Monthly_fpy']
-            interval_num = self.month
-            return df, field_name_list, interval_num
-        else:
-            return 0
-
-    def check_this_month_file(self):
-        self.month = (datetime.now() - timedelta(days=self.shift_day)).strftime('%m')
-        check_thismonth_list = [self.today]
-        for day in range(1,30):
-            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%m') != self.month:
-                continue
-            this_month_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
-            check_thismonth_list.append(this_month_day)
-        return check_thismonth_list
-
-    def check_this_week_file(self):
-        self.week_num = (datetime.now() - timedelta(days=self.shift_day)).isocalendar()[1]
-        check_thisweek_list = [self.today]
-        for day in range(1,7):
-            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).isocalendar()[1] != self.week_num:
-                continue
-            this_week_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
-            check_thisweek_list.append(this_week_day)
-        return check_thisweek_list
-
-    def df_add_station_type(self, df, stationtype_name, station_dict):
-        station_list = []
-        for index in range(len(df)):
-            for stationtype in stationtype_name:
-                if df.loc[index, "Station"] in station_dict[stationtype]:
-                    station_list.append(stationtype)
-        df["StationType"] = station_list
-        return df
-
-    def df_calc_station_type_yield(self, df):
-        df = df.groupby(['StationType']).sum()
-        df["Yield"] = df["PASS"] / (df["PASS"]+df["FAIL"]+0.0001)
-        df["TOTAL"] = df["PASS"] + df["FAIL"]
-        df = df[df["PASS"]!=0]   # Avoid station which FPY=0 display on dashboard
-        return df
-
-    def df_fpy_station_preprocessing(self, df):
-        station_type_name, station_type_dict = self.get_station_type_empty_dict()
-        df_sub_station = df["Station"].unique()
-        station_type_dict = self.get_station_type_dict_value(station_type_dict, df_sub_station)
-        df = self.df_add_station_type(df, station_type_name, station_type_dict)
-        df_substation = df[["Station", "StationType", "PASS", "FAIL"]]
-        return df_substation
-
-    def df_fpy_preprocessing(self, df):
-        station_type_name, station_type_dict = self.get_station_type_empty_dict()
-        df_sub_station = df["Station"].unique()
-        station_type_dict = self.get_station_type_dict_value(station_type_dict, df_sub_station)
-        df = self.df_add_station_type(df, station_type_name, station_type_dict)
-        df = df[["StationType", "PASS", "FAIL"]]
-        return df
-
-    def df_fpy_week(self):
-        check_thisweek_list = self.check_this_week_file()
-        df = pd.DataFrame(columns=["Station", "PASS", "FAIL"])
-        df = self.df_merge_all_week_month_file(df, check_thisweek_list)
-        return df
-
-    def df_fpy_month(self):
-        check_thismonth_list = self.check_this_month_file()
-        df = pd.DataFrame(columns=["Station", "PASS", "FAIL"])
-        df = self.df_merge_all_week_month_file(df, check_thismonth_list)
-        return df
-
-    def df_merge_all_week_month_file(self, df, folder_date_list):
-        for day in folder_date_list:
-            folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(day)
-            if not os.path.isdir(folder_path):
-                continue
-            last_file = [i for i in os.listdir(folder_path) if self.factory_name in i and "Yield" in i and "!" not in i]
-            if last_file==[]:
-                continue
-            last_file = sorted(last_file, reverse=True)
-            df_sub = pd.read_csv(folder_path+last_file[0])
-            df_sub = df_sub.drop(['Yield'], axis=1)
-            df = df.set_index("Station").add(df_sub.set_index("Station"), fill_value=0).reset_index()
-        return df
-
-    def fpy_add_uniform_station_name_column(self, df, pattern):
-        temp = df["Station"].str.split(pattern, expand=True)
-        temp = temp.loc[:, [1, 2]]
-        temp.loc[temp[2]!="", 2] = "#" + temp.loc[temp[2]!="", 2].astype(str)
-        temp = self.df_combine_two_column(temp, "STATION_NAME", 1, 2, "")
-        temp = temp[["STATION_NAME"]]
-        df = pd.concat([df, temp], axis=1)
-        return df
-
-    def fpy_rename_station(self, df, station_col):
-        rename_dict = {"CBNFUNC":"CBN-FUNC", "CBN_VOICE":"CBN_Voice", "M200VOICE":"M200-VOICE", "FINAL_CHECK_":"Final Check ",
-                       "FINAL_CHECK":"Final Check", "RETURN_LOSS":"Return_loss"}
-        for k,v in rename_dict.items():
-            df[station_col] = df[station_col].str.replace(k, v, regex=False)
-        return df
-
-    def fpy_uniform_station_format_equal_to_station_name(self, df):
-        pattern_1_regex = "([a-zA-Z_]+)(\d*$)"
-        pattern_1 = self.fpy_uniform_station_format_pattern(df, pattern_1_regex)
-        pattern_2_regex = "([\D][\d]+[\D]+)(\d*)"
-        pattern_2 = self.fpy_uniform_station_format_pattern(df, pattern_2_regex)
-        pattern_3_regex = "[\D]+[\d][\D]"
-        pattern_3 = df[df["Station"].str.match(pattern_3_regex)].reset_index(drop=True)
-        if not pattern_3.empty:
-            pattern_3["STATION_NAME"] = pattern_3["Station"]
-            pattern_3 = self.fpy_rename_station(pattern_3, "STATION_NAME")
-        df = pd.concat([pattern_1, pattern_2, pattern_3], axis=0).reset_index(drop=True)
-        df = self.df_drop_column(df, ["Station"])
-        df = self.df_rename_column(df, {"STATION_NAME": "Station"})
-        return df
-
-    def fpy_uniform_station_format_pattern(self, df, pattern_regex):
-        pattern = df[df["Station"].str.match(pattern_regex)].reset_index(drop=True)
-        if not pattern.empty:
-            pattern = self.fpy_add_uniform_station_name_column(pattern, pattern_regex)
-            pattern = self.fpy_rename_station(pattern, "STATION_NAME")
-        return pattern
-
-    def get_this_hour_data(self, folder_path, shift_period):
-        this_hour = (datetime.now() - timedelta(hours=shift_period)).strftime('%Y%m%d-%H')
-        this_hour_file = [i for i in os.listdir(folder_path) if this_hour in i and self.factory_name in i and "Yield" in i and "!" not in i]
-        return this_hour_file
-
-    def get_last_hour_data(self, folder_path, shift_period):
-        last_hour = (datetime.now() - timedelta(hours=shift_period+1)).strftime('%Y%m%d-%H')
-        last_hour_file = [i for i in os.listdir(folder_path) if last_hour in i and self.factory_name in i and "Yield" in i and "!" not in i]
-        return last_hour_file
-
-    def get_today_file(self, folder_path):
-        today_file = [i for i in os.listdir(folder_path) if self.factory_name in i and "Yield" in i and "!" not in i]
-        today_file = sorted(today_file)
-        return today_file
-
-    def insert_station_hourly_fpy_to_influxdb(self, table_name, df, time_in_db):
-        json = []
-        for index in range(len(df)):
-            json_point = {"measurement": table_name,
-                          "time":time_in_db.strftime('%Y-%m-%dT%H:12:00Z'),
-                          "tags":{"STATION_TYPE": df["StationType"][index],
-                                  "STATION_NAME": df["Station"][index]},
-                          "fields":{"PASS": df["PASS"][index],
-                                    "FAIL": df["FAIL"][index],
-                                    "Yield": df["Yield"][index]}
-                }
-            json.append(json_point)
-        self.print_json_log(json)
-        self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
-
-    def insert_station_type_daily_fpy_to_influxdb(self, table_name, df, time_in_db):
-        json = []
-        for index in range(len(df)):
-            json_point = {
-                    "measurement": table_name,
-                    "time":time_in_db.strftime('%Y-%m-%dT00:00:00Z'),
-                    "tags":{"STATION_TYPE": df.index[index]},
-                    "fields":{"PASS": df["PASS"][index],
-                              "FAIL": df["FAIL"][index],
-                              "Yield": df["Yield"][index]}
-            }
-            json.append(json_point)
-        self.print_json_log(json)
-        self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
-
-    def insert_average_fpy_into_influxdb(self, table_name, df, shift_period):
-        time_in_db = datetime.now() - timedelta(hours=shift_period+1) - timedelta(hours=8)
-        threshold = 0.1*(df["TOTAL"].mean())
-        df_cal = df[df["TOTAL"].gt(threshold)]
-        df_cal = df_cal[df_cal["TOTAL"].gt(30)]
-        if not df_cal.empty:
-            df_cal = df_cal[df_cal.index!="Others"]
-            hour_average_fpy = df_cal["Yield"].mean()
-            json = [{"measurement": table_name,
-                     "time":time_in_db.strftime('%Y-%m-%dT%H:12:00Z'),
-                     "tags":{"STATION_TYPE": "TOTAL"},
-                     "fields":{"PASS": df["PASS"].sum(),
-                               "FAIL": df["FAIL"].sum(),
-                               "Yield": hour_average_fpy}
-            }]
-            self.print_json_log(json)
-            self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
-    
-    def insert_average_daily_fpy_into_influxdb(self, table_name, df, time_in_db):
-        threshold = 0.1*(df["TOTAL"].mean())
-        df_cal = df[df["TOTAL"].gt(threshold)]
-        df_cal = df_cal[df_cal["TOTAL"].gt(100)]
-        if not df_cal.empty:
-            df_cal = df_cal[df_cal.index!="Others"]
-            daily_average_fpy = df_cal["Yield"].mean()
-            json = [{
-                    "measurement": table_name,
-                    "time":time_in_db.strftime('%Y-%m-%dT00:00:00Z'),
-                    "tags":{"STATION_TYPE": "TOTAL"},
-                    "fields":{"PASS": df["PASS"].sum(),
-                              "FAIL": df["FAIL"].sum(),
-                              "Yield": daily_average_fpy}
-                    }]
-            self.print_json_log(json)
-            self.insert_into_influxdb(self.factory_name, json, 'm', 10000)
-
-    def insert_weekly_or_monthly_fpy_to_influxdb(self, factory_name, interval='WEEK'):
-        df, field_name_list, interval_num = self.check_week_or_month_interval_num(interval)
-        df = self.fpy_uniform_station_format_equal_to_station_name(df)
-        df = self.df_fpy_preprocessing(df)
-        df = self.df_calc_station_type_yield(df)
-        threshold = 0
-        df_cal = df[df["TOTAL"].gt(threshold)]
-        if not df_cal.empty:
-            df_cal = df_cal[df_cal.index!="Others"]
-            average_fpy = df_cal["Yield"].mean()
-            json = [{
-                    "measurement": self.table_name,
-                    "time":(datetime.now() - timedelta(days=self.shift_day)).strftime('%Y-%m-%dT00:00:00Z'),
-                    "fields":{field_name_list[0]:interval_num,
-                              field_name_list[1]:df_cal["PASS"].sum(),
-                              field_name_list[2]:df_cal["FAIL"].sum(),
-                              field_name_list[3]:average_fpy}
-            }]
-            self.print_json_log(json)
-            self.insert_into_influxdb(factory_name, json, 'm', 10000)
-
-    def two_file_substract(self, folder_path, this_hour_file, last_hour_file):
-        df_last_hour = pd.read_csv(folder_path+last_hour_file).drop(['Yield'], axis=1)
-        df_this_hour = pd.read_csv(folder_path+this_hour_file).drop(['Yield'], axis=1)
-        df = pd.merge(left=df_this_hour, right=df_last_hour, left_on='Station', right_on='Station')
-        df["PASS"] = df["PASS_x"] - df["PASS_y"]
-        df["FAIL"] = df["FAIL_x"] - df["FAIL_y"]
-        df["Yield"] = 100 * df["PASS"] / (df["PASS"]+df["FAIL"]+0.0001)
-        return df
-
-    def get_station_type_empty_dict(self):
-        stationtype_dict = dict()
-        stationtype_name = ["PREWLAN", "RETURN_LOS", "BCD", "Func", "Voice", "WLAN", "FinalChk", "M200-Voice", "PRECONFIG", "Others"]
-        for i in stationtype_name:
-            stationtype_dict[i] = []
-        return stationtype_name, stationtype_dict
-
-    def get_station_type_dict_value(self, station_type_dict, station_regex_list):
-        for item in station_regex_list:
-            if "OBA" in item:
-                station_type_dict["Others"].append(item)
-            elif "PRECONFIG" in item:
-                station_type_dict["PRECONFIG"].append(item)
-            elif "Return_loss" in item or "RETURNLOSS" in item:
-                station_type_dict["RETURN_LOS"].append(item)
-            elif "BCD" in item or "MTTNS-DSCAL" in item or "CONFIG" in item:
-                station_type_dict["BCD"].append(item)
-            elif "Voice" in item or "VOICE" in item:
-                station_type_dict["Voice"].append(item)
-            elif "M200-VOICE" in item:
-                station_type_dict["M200-Voice"].append(item)
-            elif "CBN-FUNC" in item or "FUNCTION" in item:
-                station_type_dict["Func"].append(item)
-            elif "Final Check" in item or "FINALCHK" in item:
-                station_type_dict["FinalChk"].append(item)
-            elif "PREWLAN" in item and "REP" not in item:
-                station_type_dict["PREWLAN"].append(item)
-            elif "WLAN" in item and "REP" not in item:
-                station_type_dict["WLAN"].append(item)
-            else:
-                station_type_dict["Others"].append(item)
-        return station_type_dict
 
 class ProductionTemplate(FactoryBasicTemplate):
     def __init__(self):
@@ -699,14 +421,15 @@ class CycletimeTemplate(FactoryBasicTemplate):
     def __init__(self):
         super(CycletimeTemplate, self).__init__()
 
-    def cycletime_combine_stationtype(self, df):
-        df = self.df_drop_row_by_particular_string(df, "STATION_TYPE", ["PREWLANIQ", "GIGACHECK"])
+    def pass_fail_data_combine_stationtype(self, df):
+        df = self.df_drop_row_by_particular_string(df, "STATION_TYPE", ["PREWLANIQ", "GIGACHECK", "FCHECK", "OBA", "RLOSS", "RLoss"])
         df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("FINALCHK", "FinalChk")
-        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("CONFIG", "BCD")
-        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("BPI", "BCD")
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("DSCAL", "BCD")
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("FUNC", "Func")
+        df["STATION_TYPE"] = df["STATION_TYPE"].str.replace("VOICE", "Voice")
         return df
 
-    def cycletime_combine_station_and_port(self, df):
+    def pass_fail_data_combine_station_and_port(self, df):
         df = self.df_change_column_type(df, col_new_type_dict={"PORT":"int", "CYCLETIME":"int"})
         df = self.df_change_column_type(df, col_new_type_dict={"PORT":"str", "MSN":"str", "CSN":"str"})
         df["PORT"] = df["PORT"].str.zfill(2)
@@ -714,8 +437,8 @@ class CycletimeTemplate(FactoryBasicTemplate):
         return df
 
     def cycletime_data_preprocseeing(self, df):
-        df = self.cycletime_combine_stationtype(df)
-        df = self.cycletime_combine_station_and_port(df)
+        df = self.pass_fail_data_combine_stationtype(df)
+        df = self.pass_fail_data_combine_station_and_port(df)
         df = self.df_drop_column(df, drop_column_name_list=["STATION_NAME", "PORT"])
         df["SECONDS"] = pd.to_timedelta(df["CYCLETIME"], "s")
         df["TEST_TIME"] = pd.to_datetime(df["TEST_TIME"]) - pd.Timedelta(hours=8)
@@ -725,8 +448,8 @@ class CycletimeTemplate(FactoryBasicTemplate):
         return df
 
     def cycletime_insert_hourly_amount_pass_fail(self, df, factory_name, table_name):
-        df = self.cycletime_combine_stationtype(df)
-        df = self.cycletime_combine_station_and_port(df)
+        df = self.pass_fail_data_combine_stationtype(df)
+        df = self.pass_fail_data_combine_station_and_port(df)
         df = self.df_drop_column(df, drop_column_name_list=["STATION_NAME", "PORT"])
         df = df[["TEST_TIME", "MODEL", "STATION_TYPE", "STATION_PORT", "TEST_RESULT"]]
         df["TEST_TIME"] = pd.to_datetime(df["TEST_TIME"]) - pd.Timedelta(hours=8)
@@ -764,7 +487,7 @@ class CycletimeTemplate(FactoryBasicTemplate):
         return df_res
 
     def cycletime_insert_raw_data(self, factory_name, df_cycletime, measurement_name, pass_or_fail="PASS"):
-        df_cycletime["SKU_NAME"] = df_cycletime["CSN"].str.strip().str[-3:]
+        df_cycletime["SKU_NAME"] = df_cycletime["MSN"].str.strip().str[-3:]
         df_cycletime = self.df_change_column_type(df_cycletime, col_new_type_dict={"SKU_NAME":"str"})
         sku_name_dict = self.sku_name()
         df_cycletime = df_cycletime.replace({"SKU_NAME":sku_name_dict})
@@ -928,3 +651,114 @@ class CycletimeTemplate(FactoryBasicTemplate):
                          "594":"LGI-Ziggo", "660":"Telenet", "038":"Vodafon", "094":"Claro", "096":"Adtran", "101":"Gentek",
                          "150":"CNS", "550":"KBRO", "610":"Mobistar", "670":"Stofa", "800":"CASA", "821":"PYUR", "880":"ONO"}
         return sku_name_dict
+
+class FpyTemplate(FactoryBasicTemplate):
+    def __init__(self):
+        super(FpyTemplate, self).__init__()
+
+    def fpy_df_pass_fail_count(self, df, pass_fail="PASS"):
+        pass_fail_dict = {"PASS": 1, "FAIL": 0}
+        df = df[df["TEST_RESULT"]==pass_fail_dict[pass_fail]].reset_index(drop=True)
+        df_groupby = df.groupby(["MODEL", "STATION_TYPE", "STATION_NAME"]).agg({"TEST_RESULT":["size"]})
+        df_groupby.columns = ["_".join(x) for x in df_groupby.columns.ravel()]
+        df_groupby = self.df_rename_column(df_groupby, {"TEST_RESULT_size":pass_fail})
+        df_groupby = df_groupby.reset_index()
+        return df_groupby
+
+    def df_calc_station_type_yield(self, df):
+        df = df.groupby(['STATION_TYPE']).sum()
+        df["TOTAL"] = df["PASS"] + df["FAIL"]
+        df["YIELD"] = df["PASS"] / (df["PASS"]+df["FAIL"]+0.0001)
+        df = df[df["PASS"]!=0]   # Avoid station which FPY=0 display on dashboard
+        return df
+
+    def cal_fpy_groupby_stationtype(self, df, factory_name, period_type):
+        df = self.df_calc_station_type_yield(df)
+        threshold = 0.1*(df["TOTAL"].mean())
+        df_cal = df[df["TOTAL"].gt(threshold)]
+        df_cal = df_cal[df_cal["TOTAL"].gt(30)]
+        if period_type=="Hour":
+            measurement = self.table_name_hour_firstpassyield
+            time_in_db = self.time_in_db.strftime('%Y-%m-%dT%H:12:00Z')
+        elif period_type=="Day":
+            measurement = self.table_name_day_firstpassyield
+            time_in_db = self.time_in_db.strftime('%Y-%m-%dT00:00:00Z')
+        if not df_cal.empty:
+            json = [{"measurement": measurement,
+                     "time": time_in_db,
+                     "fields": {"PASS": df["PASS"].sum(),
+                                "FAIL": df["FAIL"].sum(),
+                                "FPY": df["YIELD"].mean()}
+            }]
+            self.print_json_log(json)
+            self.insert_into_influxdb(factory_name, json, 'm', 10000)
+
+    def check_this_month_file(self):
+        self.month = (datetime.now() - timedelta(days=self.shift_day)).strftime('%m')
+        check_thismonth_list = [self.today]
+        for day in range(1,31):
+            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%m') != self.month:
+                continue
+            this_month_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
+            check_thismonth_list.append(this_month_day)
+        return check_thismonth_list
+
+    def check_this_week_file(self):
+        self.week_num = (datetime.now() - timedelta(days=self.shift_day)).isocalendar()[1]
+        check_thisweek_list = [self.today]
+        for day in range(1,7):
+            if (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).isocalendar()[1] != self.week_num:
+                continue
+            this_week_day = (datetime.now() - timedelta(days=self.shift_day) - timedelta(days=day)).strftime('%Y%m%d')
+            check_thisweek_list.append(this_week_day)
+        return check_thisweek_list
+
+    def df_pass_fail_empty_df(self):
+        df = pd.DataFrame(columns=["MODEL", "MSN", "CSN", "TEST_TIME", "STATION_TYPE", "STATION_NAME", "TEST_RESULT", "CYCLETIME", "PORT"])
+        return df
+
+    def df_fpy_week(self):
+        check_thisweek_list = self.check_this_week_file()
+        df = self.df_pass_fail_empty_df()
+        df = self.df_merge_all_week_month_file(df, check_thisweek_list)
+        return df
+
+    def df_fpy_month(self):
+        check_thismonth_list = self.check_this_month_file()
+        df = self.df_pass_fail_empty_df()
+        df = self.df_merge_all_week_month_file(df, check_thismonth_list)
+        return df
+
+    def df_merge_all_week_month_file(self, df, folder_date_list):
+        for day in folder_date_list:
+            folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(day)
+            if not os.path.isdir(folder_path):
+                continue
+            save_file_name_list = [i for i in os.listdir(folder_path) if self.factory_name in i and "FAIL_result" in i and "!" not in i]
+            if save_file_name_list==[]:
+                continue
+            save_file_name_list = sorted(save_file_name_list, reverse=True)
+            df_sub = pd.DataFrame(columns=["MODEL", "MSN", "CSN", "TEST_TIME", "STATION_TYPE", "STATION_NAME", "TEST_RESULT", "CYCLETIME", "PORT"])
+            for save_file in save_file_name_list:
+                df_daily_sub = pd.read_csv(folder_path+save_file)
+                df_sub = pd.concat([df_sub, df_daily_sub], axis=0, ignore_index=True)
+            df_sub = df_sub.reset_index(drop=True)
+            df = pd.concat([df, df_sub], axis=0, ignore_index=True).reset_index(drop=True)
+        df = self.df_drop_column(df, ["MSN", "CSN"])
+        return df
+
+    def get_week_or_month_interval_num(self, interval="WEEK"):
+        if interval=='WEEK':
+            df = self.df_fpy_week()
+            interval_num = self.week_num
+        elif interval=='MONTH':
+            df = self.df_fpy_month()
+            interval_num = self.month
+        pass_count = len(df[df["TEST_RESULT"]==1])
+        fail_count = len(df[df["TEST_RESULT"]==0])
+        result_yield = pass_count / (pass_count+fail_count+0.0001)
+        if pass_count==0 and fail_count==0:
+            pass_count = None
+            fail_count = None
+            result_yield = None
+        return pass_count, fail_count, result_yield, interval_num

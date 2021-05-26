@@ -14,7 +14,7 @@ class FacotryMac(FactoryBasicTemplate):
         self.shift_hour = (datetime.now() - timedelta(hours=self.shift_period)).strftime('%Y%m%d-%H')
         date = date_time.strftime('%Y%m%d')
         time_in_db = date_time - timedelta(hours=8)
-        folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(date)
+        folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(date)
         
         file_name_list = [i for i in os.listdir(folder_path) if factory_name in i and "Mac" in i and self.shift_hour in i and "!" not in i]
         if file_name_list==[]:
@@ -43,5 +43,5 @@ if __name__=="__main__":
         for shift_period in reversed(range(day_range)):
             try:
                 fac_mac.main(factory_name, shift_period)
-            except:
-                print('Exception')
+            except Exception as e:
+                print(e)

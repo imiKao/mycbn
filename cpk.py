@@ -295,8 +295,8 @@ if __name__=="__main__":
             for period in reversed(range(time_period)):
                 try:
                     run_cpk.main(factory_name, period)
-                except:
-                    print('Exception')
+                except Exception as e:
+                    print(e)
 
     factory_list = ["CDE", "FLEX", "TwoWing"]
     """========== HOURLY CPK =========="""

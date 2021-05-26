@@ -15,7 +15,7 @@ class Cycletime(CycletimeTemplate):
         print('factory = %s'%(factory_name))
         self.shift_period = self.factory_jet_lag[factory_name] + shift_period
         self.today = (datetime.now() - timedelta(hours=self.shift_period)).strftime('%Y%m%d')
-        self.folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(self.today)
+        self.folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(self.today)
         current_hour = (datetime.now() - timedelta(hours=self.shift_period)).strftime('%Y%m%d-%H')
 
         self.display_current_time("========== Step2: Start to get save file list")
@@ -57,7 +57,7 @@ class Idletime(CycletimeTemplate):
         print('factory = %s'%(factory_name))
         self.shift_period = self.factory_jet_lag_day[factory_name] + shift_period
         self.today = (datetime.now() - timedelta(days=self.shift_period)).strftime('%Y%m%d')
-        self.folder_path = os.getcwd() + "/" + "Raw_data/%s/"%(self.today)
+        self.folder_path = os.path.dirname(os.getcwd()) + "/" + "Raw_data/%s/"%(self.today)
 
         self.display_current_time("========== Step2: Start to get save file list")
         save_file_name_list = [i for i in os.listdir(self.folder_path) if factory_name in i and "FAIL_result" in i and "!" not in i]
@@ -75,10 +75,8 @@ class Idletime(CycletimeTemplate):
         self.display_current_time("========== Step4: Start preprocessing dataframe")
         self.display_current_time("Step4-1: Normal column process")
         df = df[["MODEL", "MSN", "CSN", "TEST_TIME", "STATION_TYPE", "STATION_NAME", "PORT", "CYCLETIME"]]
-        df = self.df_change_column_type(df, col_new_type_dict={"PORT":"int"})
-        df = self.df_change_column_type(df, col_new_type_dict={"PORT":"str", "CYCLETIME":"int"})
-        df["PORT"] = df["PORT"].str.zfill(2)
-        df = self.df_combine_two_column(df, new_col="STATION_PORT", col_1="STATION_NAME", col_2="PORT", hy_pen="_")
+        df = self.pass_fail_data_combine_stationtype(df)
+        df = self.pass_fail_data_combine_station_and_port(df)
         df = self.df_drop_column(df, drop_column_name_list=["STATION_NAME", "PORT"])
 
         self.display_current_time("Step4-2: Time column preprocessing")
@@ -135,5 +133,5 @@ if __name__=="__main__":
         for period in reversed(range(running_day)):
             try:
                 run_idletime.main(factory_name, day_working_time_period_dict, period)
-            except:
-                print("Exception")
+            except Exception as e:
+                print(e)
