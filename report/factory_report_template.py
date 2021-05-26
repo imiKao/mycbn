@@ -24,7 +24,7 @@ class FactoryReportTemplate(object):
         print("{}: {}".format(display_name, a))
 
     def influxdbClient(self, host, database):
-        client = InfluxDBClient(host=host, port=8086, database=database)
+        client = InfluxDBClient(host=host, port=8086, username="cbn", password="cbn@cbn", database=database)
         return client
 
     def add_group_dashboard_id(self, group_pdf_list, dashboard_id_info, group_name, group_sub_name, which_period, period_type):
@@ -92,7 +92,7 @@ class FactoryReportTemplate(object):
         driver.maximize_window()
         driver.get(url)
         self.web_login(driver, log_id, log_pw)
-        time.sleep(4)  # wait until browser loaded success
+        time.sleep(5)  # wait until browser loaded success
         driver.save_screenshot('%s.png'%(save_file_name))
         driver.close()
         driver.quit()
@@ -156,10 +156,37 @@ class DailyReportTemplate(FactoryReportTemplate):
         return daily_item_list
 
     def get_test_item_from_test_item_type(self, client, which_day, model, station_type, test_item_type):
-        query_text = "select MODEL, STATION_TYPE, TEST_ITEM, CPK from PREPROCESS_CPK_DAILY where MODEL = '{}' and STATION_TYPE = '{}' and TEST_ITEM =~ /{}*/ and time >= now() - {}d and time < now() - {}d".format(model, station_type, test_item_type, which_day+1, which_day)
+        query_text = "select MODEL, STATION_TYPE, TEST_ITEM, CPK from CPK_STATIONTYPE_DAILY where MODEL = '{}' and STATION_TYPE = '{}' and TEST_ITEM =~ /{}*/ and time >= now() - {}d and time < now() - {}d".format(model, station_type, test_item_type, which_day+1, which_day)
         query_result = client.query(query_text)
         test_item_list = self.get_daily_low_cpk_item(query_result)
         return test_item_list
+
+    def get_which_day_by_checking_production(self, client, which_day):
+        max_check_days = 7
+        while which_day<=max_check_days:
+            query_text = "select model, act_production from PRODUCTION_DAILY where time >= now() - %sd and time < now() - %sd"%(which_day+1, which_day)
+            query_result = client.query(query_text)
+            if len(query_result) == 0:
+                which_day += 1
+                continue
+            return which_day
+        return self.which_day
+
+    def generate_pdf_for_test_item_type(self, all_test_item_type_url_dict):
+        low_cpk_test_item_type_list = []
+        for name, url in all_test_item_type_url_dict.items():
+            self.display_current_time("=====%s====="%(name))
+            sub_pdf = self.sub_pdf_page(page_url=url, file_part_name=name)
+            low_cpk_test_item_type_list.append(sub_pdf)
+        return low_cpk_test_item_type_list
+
+    def generate_pdf_for_test_item(self, daily_low_cpk_url_dict):
+        low_cpk_test_item_list = []
+        for name, url in daily_low_cpk_url_dict.items():
+            self.display_current_time("=====%s====="%(name))
+            sub_pdf = self.sub_pdf_page(page_url=url, file_part_name=name)
+            low_cpk_test_item_list.append(sub_pdf)
+        return low_cpk_test_item_list
 
     def remove_repeat_list_in_list(self, target_list):
         s = set(tuple(l) for l in target_list)
