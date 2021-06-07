@@ -127,9 +127,9 @@ class FactoryBasicTemplate(object):
         for j in json_list:
             print(j)
 
-class Ftp(object):
+class Ftp(FactoryBasicTemplate):
     def __init__(self):
-        pass
+        super(Ftp, self).__init__()
 
     def ftp_login(self, host="ftp2.compalbn.com", user_name="cbn_grafana", password="HGB7Z3mf"):
         ftp=FTP()
@@ -148,10 +148,20 @@ class Ftp(object):
             filenamelist.append(filename)
         return filenamelist
 
-    def ftp_copy_file_to_local(self, ftp, today_file_list, folder_path):
+    def file_timestamp(self, shift_hour):
+        file_timestamp = datetime.now() - timedelta(hours=shift_hour)
+        file_timestamp_day = file_timestamp.strftime('%Y%m%d')
+        file_timestamp_hour = file_timestamp.strftime('%Y%m%d-%H')
+        return file_timestamp_day, file_timestamp_hour
+
+    def ftp_check_file(self, filenamelist, file_timestamp_hour):
+        today_file_list = [item for item in filenamelist if file_timestamp_hour in item]
+        return today_file_list
+
+    def ftp_copy_file_to_local(self, ftp, today_file_list, local_path):
         bufsize=1024
         for item in today_file_list:
-            ftp.retrbinary("RETR %s"%(item), open(folder_path+item, 'wb').write, bufsize)
+            ftp.retrbinary("RETR %s"%(item), open(local_path+item, 'wb').write, bufsize)
 
     def ftp_delete_file(self, ftp, today_file_list):
         for item in today_file_list:
