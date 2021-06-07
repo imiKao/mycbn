@@ -1,0 +1,72 @@
+/* E-mail*/
+def TEMP_RECIPIENT= "timer_ho@compalbn.com,sy_huang@compalbn.com,rock_chen@compalbn.com,vic_huang@compalbn.com,sonic_tsai@compalbn.com,aidan_kao@compalbn.com,jiusheng_kuo@compalbn.com,sherry_huang@compalbn.com,ken_chen@compalbn.com,chunting_liu@compalbn.com,jason_chan@compalbn.com"
+//def TEMP_RECIPIENT= "aidan_kao@compalbn.com"
+
+/* Connect Daily User*/
+def USER_FOLDER= "cbn_generic_2"
+def Jenkins_node= "cbn_generic_2"
+def grafana_screenshot= ""
+
+node("${Jenkins_node}"){
+    stage('Grafana Daily Build Report'){
+        echo "=================== Grafana Screenshot START ==================="
+		Year_STRING = sh(script:'printf "%s" "`date --date="1 month ago" +%Y-`"', returnStdout:true)
+		Month = sh(script:'printf "%s" "`date --date="1 month ago" +%b`"', returnStdout:true)
+		echo "=${Month}="
+		if("${Month}" == " 一 "){
+			Month_STRING = "Jan"
+		}else if("${Month}" == " 二 "){
+			Month_STRING = "Feb"
+		}else if("${Month}" == " 三 "){
+			Month_STRING = "Mar"
+		}else if("${Month}" == " 四 "){
+			Month_STRING = "Apr"
+		}else if("${Month}" == " 五 "){
+			Month_STRING = "May"
+		}else if("${Month}" == " 六 "){
+			Month_STRING = "Jun"
+		}else if("${Month}" == " 七 "){
+			Month_STRING = "Jul"
+		}else if("${Month}" == " 八 "){
+			Month_STRING = "Aug"
+		}else if("${Month}" == " 九 "){
+			Month_STRING = "Sep"
+		}else if("${Month}" == " 十 "){
+			Month_STRING = "Oct"
+		}else if("${Month}" == "十一"){
+			Month_STRING = "Nov"
+		}else{Month_STRING = "Dec"}
+		grafana_screenshot = "${Year_STRING}${Month_STRING}_CDE_monthly_report.pdf"
+		echo "${grafana_screenshot}"
+        retry(3){
+            try{
+                sh("rm *.pdf")
+                echo "rm screenshot PASS"
+            }catch(err){
+                echo "rm screenshot FAIL"
+            }
+            try{
+                result = sh(script:"python /home/${USER_FOLDER}/cbn/cbn_factory_report/CDE_monthly_report.py", returnStdout:true)
+                echo "grafana screenshot PASS"
+            }catch(Exception e){
+                println(e)
+                echo "grafana screenshot FAIL"
+            }
+            try{
+                sh(script: 'find -name "*_monthly_report.pdf"', returnStatus: true)
+                echo "Pdf merge PASS"
+            }catch(Exception e){
+                println(e)
+                echo "Pdf merge FAIL"
+            }
+        }
+        echo "=================== Grafana Screenshot FINISH ==================="
+		//send email
+		emailext attachmentsPattern: "**/${grafana_screenshot}",
+		body:'${JELLY_SCRIPT,template=\"grafana_report.jelly\"}',
+		subject: "${JOB_NAME} - # ${BUILD_NUMBER}",
+		to: "${TEMP_RECIPIENT}"
+
+		echo 'Completed daily report'
+    }
+}
